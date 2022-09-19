@@ -1,0 +1,156 @@
+%macro pasc(outcome, name, cri, var);
+
+data model;
+merge covmed.cohort_matched(in=a) covmed.pascoutcomes(in=b) ;
+by patienticn;
+if a;
+if hx_&outcome^=. then delete;
+run;
+
+data hxmodel;
+set model;
+where t0 >= '01MAR2022'd and t0 <='30JUN2022'd; 
+run; 
+
+data cohort0;
+set hxmodel;
+if &cri and index(class,"0");
+target=0;
+run;
+
+data cohort1;
+set hxmodel;
+if &cri and index(class,"1");
+target=0;
+run;
+
+data target;
+set hxmodel;
+if index(class,"1");
+target=1;
+run;
+
+
+data ps0;
+set target  cohort0;
+&var;
+run;
+
+proc logistic data=ps0 noprint ;
+class sex race smoke   state;
+model target(event="1")=
+_X2-_X30
+hxnin hxcovid
+longterm sex race smoke  hxsteroid vacc1 vacc2 vacc3
+cad cancer cvd dementia Diabetes CLD pad hyperlip hiv liver totbed  avg_bed fluvacc immuno ;
+
+output out=ps0 (keep=patienticn class ps0 oc_&outcome target) pred=ps0 ;
+run;
+
+data ps1;
+set target  cohort1;
+&var;
+run;
+
+proc logistic data=ps1 noprint ;
+class sex race smoke   state;
+model target(event="1")=
+_X2-_X30
+hxnin hxcovid
+longterm sex race smoke  hxsteroid vacc1 vacc2 vacc3
+cad cancer cvd dementia Diabetes CLD pad hyperlip hiv liver totbed  avg_bed fluvacc immuno;
+
+output out=ps1 (keep=patienticn class ps1 oc_&outcome target) pred=ps1 ;
+run;
+
+
+
+
+data sumps;
+set ps0 ps1;
+where target=0;
+ att=(1-ps0)/ps0; 
+ if att=. then att=(1-ps1)/ps1; 
+rename att=att_&outcome ;
+run;
+
+proc sort data=sumps;
+by patienticn;
+run;
+
+
+data covmed.ps&name;
+merge covmed.ps&name (in=a ) sumps(keep=patienticn  att_&outcome oc_&outcome );
+by patienticn ;
+if a;
+run;
+
+
+
+
+
+
+
+
+
+
+data cox;
+set covmed.ps&name ;
+wt=att_&outcome;
+if wt ^=.;
+if wt>10 then wt=10;
+if oc_&outcome >t0+29 and oc_&outcome<=endoffollow then do;
+t_&outcome = oc_&outcome -t0;
+&outcome._out =1;
+end;
+else do;
+t_&outcome = t_death;
+&outcome._out =0;
+end;
+run;
+
+proc freq data=cox; table &outcome._out;run;
+
+proc sort data=cox out=baseline(keep=class) nodupkey;
+by class;
+run;
+
+
+ods output hazardratios=hr;
+proc phreg data=cox aggregate(cov);
+class class (ref="0treatment")  ;
+model t_&outcome *&outcome._out(0)=class/rl ;
+hazardratio class/diff=pairwise;
+weight wt;
+id patienticn;
+baseline covariates=baseline survival=sur lower=sur_l upper=sur_u timelist=90 out=sur outdiff=surdiff 
+/group=class diradj;
+run;
+
+
+%mend;
+
+
+%let list=
+pasc2
+
+;
+
+%let name=pasc2;
+
+data covmed.ps&name ;
+set covmed.cohort_matched;
+run;
+
+
+
+%macro loop(begin,end);
+%do q=&begin %to &end;
+%let manifest=%scan(&&list,&q);
+
+%pasc (outcome=&&manifest, name= &name , cri= 60<age<=70, var= _X2=0;_X3=0;_X4=0 );
+
+%end;
+%mend;
+
+%loop(1,1);
