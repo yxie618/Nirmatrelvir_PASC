@@ -1,0 +1,73 @@
+data hx outcome;
+set icd10;
+code=compress(icd10code,".");
+
+length cmrb $64.;
+*Coag;
+IF code IN: ('I26') then cmrb = "pe"; *pulmonary embolism;
+IF code IN: ('I824','I825') then cmrb ="dv"; *deep vein thrombosis;
+
+
+*Heart;
+IF code IN: ('I255','I20','I21','I22','I24') then  cmrb ="ihd"; *Ischemic heard diseease;
+IF code IN: ('R000','R001','I490','I470','I471','I472','I480','I481','I482','I483','I484') then  cmrb ="dysrh"; *dysrhythmia;
+
+
+*Muscoloskeletal;
+if code in: ("M6281") then cmrb ="muscle"; *muscle;
+
+*Neuro;
+IF code IN: ('G454','F440','F04',
+'F01','F02','G311','G3183','G3184','G3189','G3185','G319') then cmrb = "ncd"; *neurocognitive decline;
+IF code IN: ('G900','G903','G904','G905','G908','G909') then cmrb ="dysauto";   *dysautonomia;
+
+*Pulmo;
+if code in: ("R0600","R0602","R0609") then cmrb="short"; *shortness of breath;
+if code in: ("R05") then cmrb="cough";*cough;
+
+
+if code in:('E08','E09','E10','E11','E13') then cmrb='dm';
+if code in:("N17","N19") then cmrb="aki";
+if code in:("K70","K71","K73","K74","K76","K721","Z944","B18","I850","I859","I982") then cmrb="liverd";
+if code in:("R53") then cmrb="fatigue";
+
+
+if t0>date>=t0-365.25*3 then output hx;
+else if date>t0+29 then output outcome; 
+run;
+
+data compositedm;
+merge pasc dm_lab dm_med;
+by patienticn;
+hx_dm=max(hx_dm, hx_dmlab, hx_dmmed);
+oc_dm=min (oc_dm, oc_dmlab, oc_dmmed);l
+run;
+
+
+
+/*Define weights for outcomes based on GBD*/
+data weight;
+set _null_;
+w1_fatigue=0.215;
+w1_ncd=0.128;
+w1_ihd=1.009;
+w1_dm=0.114;
+w1_aki=0.603;
+w1_pe=0.54;
+w1_short=0.138;
+w1_cough=0.138;
+w1_muscle=0.11;
+w1_liverd=0.039;
+w1_dv=0.54;
+w1_dysrh=0.124;
+w1_dysauto=0.133;
+
+standardized=17.49/5.99;
+array w1 {*}  w1_fatigue w1_ncd  w1_ihd w1_dm w1_aki 
+                    w1_pe w1_short w1_cough w1_muscle w1_liverd w1_dv w1_dysrh w1_dysauto;
+
+
+do i=1 to 13;
+w1[i]=w1[i] * standardized;
+end;
+run;
